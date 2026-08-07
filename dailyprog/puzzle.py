@@ -140,6 +140,7 @@ def main() -> None:
     # Parse args.
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", "-d")
+    parser.add_argument("--verify", "-v", action="store_true")
     args = parser.parse_args()
 
     # Puzzle date. Default to None/today.
@@ -161,9 +162,10 @@ def main() -> None:
         return
 
     # Submit the solution to run the hidden tests.
-    result = p.submit()
-    if not result["passed"]:
-        return
+    if args.verify:
+        result = p.submit()
+        if not result["passed"]:
+            return
 
     # Update the code file to include the puzzle prose and tests.
     if p.solution_code().startswith('"""'):

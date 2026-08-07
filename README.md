@@ -2,6 +2,30 @@
 
 Framework and solutions for dailyprob.club puzzles
 
+```bash
+» ./dailyprog/puzzle.py -d 2026-08-03
+#46
+
+Festival Banners
+================
+
+At a harvest festival, each stall keeps its apple count in the array `baskets`. To help visitors compare, every stall hangs a banner showing the product of the apple counts of every *other* stall.
+
+Return an array where `result[i]` is the number shown on stall `i`'s banner.
+
+Constraints:
+
+* `1 <= n <= 10`, where `n` is the length of `baskets`
+* Each count is an integer from `0` to `9`
+* The product of an empty set of counts is `1`
+
+----
+
+Testing...
+PASS  otherProducts([2, 3, 4]) -> [12, 8, 6]
+PASS  otherProducts([1, 5]) -> [5, 1]
+```
+
 ## Key Pair Generation
 
 An ED25519 keypair is used to sign submissions to the site's REST API.
