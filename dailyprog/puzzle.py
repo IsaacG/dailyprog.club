@@ -141,9 +141,10 @@ class Puzzle:
             "code": self.solution_code(),
             "language": "python",
             "submission": signature,
+            "attemptNo": 1,
         }
         headers = {
-            "referer": "https://beta.dailyprog.club/en/puzzle/2026-08-05",
+            "referer": f"https://beta.dailyprog.club/en/puzzle/{self.date_str}",
             "origin": "https://beta.dailyprog.club",
             "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
         }
@@ -181,8 +182,11 @@ def main() -> None:
 
     # Submit the solution to run the hidden tests.
     if args.verify:
+        print("Verifying...")
         result = p.submit()
+        print("PASSED" if result["passed"] else "FAILED")
         if not result["passed"]:
+            print(result)
             return
 
     # Update the code file to include the puzzle prose and tests.
