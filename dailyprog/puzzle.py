@@ -4,6 +4,7 @@
 import argparse
 import datetime
 import importlib
+import json
 import os
 import pathlib
 import requests
@@ -32,7 +33,8 @@ class Puzzle:
         if date > today:
             raise ValueError(f"Cannot read the future, {date=}")
         self.date = date
-        self.url = self.date.strftime("https://beta.dailyprog.club/en/puzzle/%Y-%m-%d")
+        self.date_str = self.date.strftime("%Y-%m-%d")
+        self.url = f"https://beta.dailyprog.club/en/puzzle/{self.date_str}"
 
         cache_dir_options = [
             (os.getenv("XDG_CACHE_HOME", "/"), "dailyprog.club"),
@@ -52,7 +54,7 @@ class Puzzle:
     def _html(self) -> str:
         """Return the puzzle as HTML, using caching if specified."""
         if self.cache_dir and self.cache_dir.exists():
-            cache_file = (self.cache_dir / self.date.strftime("%Y-%m-%d")).with_suffix(".html")
+            cache_file = (self.cache_dir / self.date_str).with_suffix(".html")
             if cache_file.exists():
                 return cache_file.read_text()
 
@@ -60,7 +62,7 @@ class Puzzle:
         resp.raise_for_status()
 
         if self.cache_dir and self.cache_dir.exists():
-            cache_file = (self.cache_dir / self.date.strftime("%Y-%m-%d")).with_suffix(".html")
+            cache_file = (self.cache_dir / self.date_str).with_suffix(".html")
             cache_file.write_text(resp.text)
 
         return resp.text
@@ -72,6 +74,16 @@ class Puzzle:
         self.title = root.xpath('//h1[@id="puzzle-title"]/text()')[0]
         self.description = root.xpath("//div/div/div/section")[0]
 
+        i = next(
+            i
+            for i in root.xpath("//html/body/script/text()")
+            if "starterCode" in i
+        )
+        i = json.loads(i[i.index("(") + 1:-1])[1]
+        i = json.loads(i[i.index(":") + 1:])[-1]["children"][2][3]
+        for key in ["id", "number", "difficulty", "title", "functionName", "starterCode", "visibleTests", "timeLimitMs"]:
+            setattr(self, key, i[key])
+
     def solution_dir(self) -> str:
         """Return the path containing the solutions."""
         return pathlib.Path(__file__).resolve().parent.parent / "solution"
@@ -80,11 +92,18 @@ class Puzzle:
         """Return the solution module."""
         if str(self.solution_dir()) not in sys.path:
             sys.path.append(str(self.solution_dir()))
-        return importlib.import_module(self.date.strftime("%Y-%m-%d"))
+        return importlib.import_module(self.date_str)
 
     def solution_file(self) -> pathlib.Path:
         """Return the solution file."""
-        return (self.solution_dir() / self.date.strftime("%Y-%m-%d")).with_suffix(".py")
+        return (self.solution_dir() / self.date_str).with_suffix(".py")
+
+    def write_solution_stub(self) -> None:
+        """Populate the solution file with the starter code."""
+        file = self.solution_file()
+        if file.exists():
+            return
+        file.write_text(self.starterCode["python"])
 
     def solution_code(self) -> str:
         """Return the solution code."""
@@ -102,25 +121,23 @@ class Puzzle:
         """Run the visible tests, returning if the solution passes and a report."""
         passes = True
         report = []
-        func_name = self.tests[0][0].split("(")[0]
-        globals()[func_name] = getattr(self.solution_module(), self.tests[0][0].split("(")[0])
-        for a, b in self.tests:
-            got = eval(a)
-            want = eval(b)
-            if got == want:
-                report.append(f"PASS  {a} -> {b}")
-            else:
-                report.append(f"FAIL  {a}")
-                report.append(f"  Want {want}")
+        func = getattr(self.solution_module(), self.functionName)
+        for i, test in enumerate(self.visibleTests):
+            got = func(*test["args"])
+            want = test["expected"]
+            result = "PASS" if got == want else "FAIL"
+            report.append(f"{i} {result} - {test["name"]}")
+            report.append(f"  Want {self.functionName}({", ".join(str(i) for i in test["args"])}) == {test["expected"]}")
+            if got != want:
                 report.append(f"  Got  {got}")
                 passes = False
         return passes, report
 
     def submit(self):
         """Submit the solution. WIP."""
-        signature = sign.sign_submission(self.title.replace(" ", "-").lower(), self.solution_code())
+        signature = sign.sign_submission(self.id, self.solution_code())
         data = {
-            "id": self.title.replace(" ", "-").lower(),
+            "id": self.id,
             "code": self.solution_code(),
             "language": "python",
             "submission": signature,
@@ -149,6 +166,7 @@ def main() -> None:
         date = datetime.date.strptime(args.date, "%Y-%m-%d")
 
     p = Puzzle(date)
+    p.write_solution_stub()
 
     # Print the puzzle description.
     print(p.markdown())
