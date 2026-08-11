@@ -2,18 +2,20 @@
 """Helper to access https://beta.dailyprog.club/ puzzles."""
 
 import argparse
+import copy
 import datetime
 import importlib
 import json
 import os
 import pathlib
-import requests
+import re
 import sys
 import uuid
 
 from lxml import etree, html
 import markdownify
 import more_itertools
+import requests
 
 import sign
 
@@ -114,8 +116,16 @@ class Puzzle:
         clean_html = html.tostring(self.description, encoding="utf-8").decode("utf-8")
         lines = markdownify.markdownify(clean_html).splitlines()
         if lines[0].endswith("till reset"):
-            lines = lines[2:]
-        return "\n".join(lines)
+            lines.pop(0)
+        while not lines[0]:
+            lines.pop(0)
+        if lines[0] == f"#{self.number}":
+            lines.pop(0)
+        while not lines[0]:
+            lines.pop(0)
+        out = "\n".join(lines)
+        out = re.sub(r"\. ([A-Z])", (lambda m: ".\n" + m.group(1)), out)
+        return out
 
     def test(self) -> tuple[bool, list[str]]:
         """Run the visible tests, returning if the solution passes and a report."""
@@ -123,7 +133,8 @@ class Puzzle:
         report = []
         func = getattr(self.solution_module(), self.functionName)
         for i, test in enumerate(self.visibleTests):
-            got = func(*test["args"])
+            args = copy.deepcopy(test["args"])
+            got = func(*args)
             want = test["expected"]
             result = "PASS" if got == want else "FAIL"
             report.append(f"{i} {result} - {test["name"]}")
@@ -158,6 +169,7 @@ def main() -> None:
     # Parse args.
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", "-d")
+    parser.add_argument("--show", "-s", action="store_true")
     parser.add_argument("--verify", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -170,8 +182,9 @@ def main() -> None:
     p.write_solution_stub()
 
     # Print the puzzle description.
-    print(p.markdown())
-    print("\n----\n")
+    if args.show:
+        print(p.markdown())
+        print("\n----\n")
 
     print("Testing...")
     passes, report = p.test()
