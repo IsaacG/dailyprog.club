@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import uuid
 
@@ -23,7 +24,7 @@ import sign
 class Puzzle:
     """Puzzle presents an interface to interact with the dailyprog.club puzzle."""
 
-    def __init__(self, date: datetime.date | None = None, cache_dir: pathlib.Path | None = None) -> None:
+    def __init__(self, language: str, date: datetime.date | None = None, cache_dir: pathlib.Path | None = None) -> None:
         """Initialize the puzzle.
 
         date: the puzzle to load. If set to None, use today.
@@ -37,6 +38,7 @@ class Puzzle:
         self.date = date
         self.date_str = self.date.strftime("%Y-%m-%d")
         self.url = f"https://beta.dailyprog.club/en/puzzle/{self.date_str}"
+        self.language = language
 
         cache_dir_options = [
             (os.getenv("XDG_CACHE_HOME", "/"), "dailyprog.club"),
@@ -98,14 +100,68 @@ class Puzzle:
 
     def solution_file(self) -> pathlib.Path:
         """Return the solution file."""
-        return (self.solution_dir() / self.date_str).with_suffix(".py")
+        suffix = {"python": ".py", "go": ".go"}[self.language]
+        return (self.solution_dir() / self.date_str).with_suffix(suffix)
 
     def write_solution_stub(self) -> None:
         """Populate the solution file with the starter code."""
+        {"python": self.write_solution_stub_python, "go": self.write_solution_stub_go}[self.language]()
+
+    def write_solution_stub_go(self) -> None:
         file = self.solution_file()
         if file.exists():
             return
-        file.write_text(self.starterCode["python"])
+
+        out = []
+        desc = self.markdown().splitlines()
+        out.append('/*')
+        out.append(desc[0])
+        out.extend(desc[2:])
+        out.append('*/')
+        out.append("package main")
+        out.append("")
+        out.append('import "os"')
+        out.append("")
+        out.append(self.starterCode["go"])
+        out.append("")
+        out.append("func main() {")
+        out.append("    testCases := []struct{input, want string}{")
+        for a, b in self.tests:
+            out.append(f"        {{{a}, {b}}},")
+        out.append("    }")
+        out.append("    for _, tc := range testCases {")
+        out.append(f"        if got := {self.functionName()}(tc.input); got != tc.want {{")
+        out.append('            println("FAIL", tc.input, got, tc.want)')
+        out.append("            os.Exit(1)")
+        out.append("        }")
+        out.append("    }")
+        out.append('    os.Exit(0)')
+        out.append("}")
+        file.write_text("\n".join(out).strip() + "\n")
+
+    def write_solution_stub_python(self) -> None:
+        file = self.solution_file()
+        if file.exists():
+            return
+
+        out = []
+        desc = self.markdown().splitlines()
+        out.append('"""' + desc[0])
+        out.extend(desc[2:])
+        out.append('"""')
+        out.append("import unittest")
+        out.append("")
+        out.append(self.starterCode[self.language])
+        out.append("")
+        out.append("class TestSolution(unittest.TestCase):")
+        out.append("    def test_data(self):")
+        for a, b in self.tests:
+            out.append(f"        self.assertEqual({a}, {b})")
+        out.append("")
+        out.append('if __name__ == "__main__":')
+        out.append("    unittest.main()")
+
+        file.write_text("\n".join(out).strip() + "\n")
 
     def solution_code(self) -> str:
         """Return the solution code."""
@@ -127,22 +183,14 @@ class Puzzle:
         out = re.sub(r"\. ([A-Z])", (lambda m: ".\n" + m.group(1)), out)
         return out
 
-    def test(self) -> tuple[bool, list[str]]:
+    def test(self) -> bool:
         """Run the visible tests, returning if the solution passes and a report."""
-        passes = True
-        report = []
-        func = getattr(self.solution_module(), self.functionName)
-        for i, test in enumerate(self.visibleTests):
-            args = copy.deepcopy(test["args"])
-            got = func(*args)
-            want = test["expected"]
-            result = "PASS" if got == want else "FAIL"
-            report.append(f"{i} {result} - {test["name"]}")
-            report.append(f"  Want {self.functionName}({", ".join(str(i) for i in test["args"])}) == {test["expected"]}")
-            if got != want:
-                report.append(f"  Got  {got}")
-                passes = False
-        return passes, report
+        cmd = {
+            "python": ["python", self.solution_file()],
+            "go": ["go", "run", self.solution_file()],
+        }[self.language]
+        p = subprocess.run(cmd)
+        return p.returncode == 0
 
     def submit(self):
         """Submit the solution. WIP."""
@@ -150,7 +198,7 @@ class Puzzle:
         data = {
             "id": self.id,
             "code": self.solution_code(),
-            "language": "python",
+            "language": self.language,
             "submission": signature,
             "attemptNo": 1,
         }
@@ -171,6 +219,7 @@ def main() -> None:
     parser.add_argument("--date", "-d")
     parser.add_argument("--show", "-s", action="store_true")
     parser.add_argument("--verify", "-v", action="store_true")
+    parser.add_argument("--language", "-l", default="python")
     args = parser.parse_args()
 
     # Puzzle date. Default to None/today.
@@ -178,7 +227,7 @@ def main() -> None:
     if args.date:
         date = datetime.date.strptime(args.date, "%Y-%m-%d")
 
-    p = Puzzle(date)
+    p = Puzzle(language=args.language, date=date)
     p.write_solution_stub()
 
     # Print the puzzle description.
@@ -187,10 +236,7 @@ def main() -> None:
         print("\n----\n")
 
     print("Testing...")
-    passes, report = p.test()
-    print("\n".join(report))
-
-    if not passes:
+    if not p.test():
         return
 
     # Submit the solution to run the hidden tests.
@@ -200,20 +246,6 @@ def main() -> None:
         print("PASSED" if result["passed"] else "FAILED")
         if not result["passed"]:
             print(result)
-            return
-
-    # Update the code file to include the puzzle prose and tests.
-    if p.solution_code().startswith('"""'):
-        return
-    desc = p.markdown().splitlines()
-    out = []
-    out.append('"""' + desc[0])
-    out.extend(desc[2:])
-    out.append('"""')
-    out.append(p.solution_code())
-    for a, b in p.tests:
-        out.append(f"assert {a} == {b}")
-    p.solution_file().write_text("\n".join(out).strip() + "\n")
 
 
 if __name__ == "__main__":
