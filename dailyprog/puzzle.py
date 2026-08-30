@@ -75,6 +75,8 @@ class Puzzle:
         """Load the puzzle data."""
         root = etree.HTML(self._html())
         self.tests = list(more_itertools.chunked(root.xpath("//figure/pre/code/text()"), 2))
+        if not self.tests:
+            self.tests = list(more_itertools.chunked(root.xpath("//section/pre/code/text()"), 2))
         self.title = root.xpath('//h1[@id="puzzle-title"]/text()')[0]
         self.description = root.xpath("//div/div/div/section")[0]
 
@@ -85,7 +87,7 @@ class Puzzle:
         )
         i = json.loads(i[i.index("(") + 1:-1])[1]
         i = json.loads(i[i.index(":") + 1:])[-1]["children"][2][3]
-        for key in ["id", "number", "difficulty", "title", "functionName", "starterCode", "visibleTests", "timeLimitMs"]:
+        for key in ["id", "number", "title", "functionName", "starterCode", "visibleTests", "timeLimitMs"]:
             setattr(self, key, i[key])
 
     def solution_dir(self) -> str:
@@ -165,7 +167,18 @@ class Puzzle:
 
     def solution_code(self) -> str:
         """Return the solution code."""
-        return self.solution_file().read_text()
+        code = self.solution_file().read_text()
+        # Strip docstring, unittest import and test code.
+        if self.language == "python":
+            keep = []
+            lines = iter(code.splitlines())
+            while next(lines) != '"""':
+                pass
+            for line in lines:
+                if line == "class TestSolution(unittest.TestCase):":
+                    return "\n".join(keep)
+                if line != "import unittest":
+                    keep.append(line)
 
     def markdown(self) -> str:
         """Return the puzzle description as markdown."""
@@ -207,7 +220,6 @@ class Puzzle:
             "origin": "https://beta.dailyprog.club",
             "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
         }
-
         resp = requests.post("https://beta.dailyprog.club/api/verify", json=data, headers=headers)
         resp.raise_for_status()
         return resp.json()
