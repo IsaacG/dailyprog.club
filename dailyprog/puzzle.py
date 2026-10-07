@@ -8,6 +8,7 @@ import importlib
 import json
 import os
 import pathlib
+from pprint import pp
 import re
 import subprocess
 import sys
@@ -86,7 +87,7 @@ class Puzzle:
             if "starterCode" in i
         )
         i = json.loads(i[i.index("(") + 1:-1])[1]
-        i = json.loads(i[i.index(":") + 1:])[-1]["children"][2][3]
+        i = json.loads(i[i.index(":") + 1:])[-1]["children"][3][3]
         for key in ["id", "number", "title", "functionName", "starterCode", "visibleTests", "timeLimitMs"]:
             setattr(self, key, i[key])
 
@@ -132,7 +133,7 @@ class Puzzle:
             out.append(f"        {{{a}, {b}}},")
         out.append("    }")
         out.append("    for _, tc := range testCases {")
-        out.append(f"        if got := {self.functionName()}(tc.input); got != tc.want {{")
+        out.append(f"        if got := {self.functionName}(tc.input); got != tc.want {{")
         out.append('            println("FAIL", tc.input, got, tc.want)')
         out.append("            os.Exit(1)")
         out.append("        }")
